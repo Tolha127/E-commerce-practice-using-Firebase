@@ -1,3 +1,4 @@
+
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -21,6 +22,8 @@ import type { Product } from "@/lib/types";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import { UploadCloud } from "lucide-react";
+import { addProductAction, updateProductAction } from "@/server/actions/productActions";
+import { useActionState, useEffect, useState, useRef } from "react"; // Changed from react-dom and useFormState
 
 const productFormSchema = z.object({
   name: z.string().min(3, { message: "Product name must be at least 3 characters." }),
@@ -28,25 +31,36 @@ const productFormSchema = z.object({
   price: z.coerce.number().positive({ message: "Price must be a positive number." }),
   category: z.string().min(1, { message: "Category is required." }),
   style: z.string().optional(),
-  sizes: z.string().min(1, {message: "Enter comma-separated sizes (e.g., S,M,L)."}), // Comma-separated string for simplicity
-  colors: z.string().min(1, {message: "Enter comma-separated colors (e.g., Red:#FF0000,Blue:#0000FF)."}), // name:hex pairs
+  sizes: z.string().min(1, {message: "Enter comma-separated sizes (e.g., S,M,L)."}),
+  colors: z.string().min(1, {message: "Enter comma-separated colors (e.g., Red:#FF0000,Blue:#0000FF)."}),
   stock: z.coerce.number().int().min(0, { message: "Stock cannot be negative." }),
   isFeatured: z.boolean().default(false),
   seasonalCollection: z.string().optional(),
-  // Image handling is complex for a mock; we'll use placeholders.
-  // images: z.array(z.string().url()).optional(),
+  // productImages: typeof window === 'undefined' ? z.any() : z.instanceof(FileList).optional(), // For client-side validation with react-hook-form
 });
 
 type ProductFormValues = z.infer<typeof productFormSchema>;
 
 interface ProductFormProps {
-  initialData?: Product | null; // For editing
+  initialData?: Product | null;
   productId?: string;
 }
 
 export function ProductForm({ initialData, productId }: ProductFormProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [imagePreviews, setImagePreviews] = useState<string[]>(initialData?.images || []);
+
+  const [addState, addFormAction, isAddPending] = useActionState(addProductAction, undefined);
+  const [updateState, updateFormAction, isUpdatePending] = useActionState(
+    // Bind productId to updateProductAction if it exists
+    productId ? updateProductAction.bind(null, productId) : async () => ({ error: "Product ID missing for update."}),
+    undefined
+  );
+  
+  const isPending = isAddPending || isUpdatePending;
+  const state = productId ? updateState : addState;
 
   const defaultValues = initialData
     ? {
@@ -73,21 +87,61 @@ export function ProductForm({ initialData, productId }: ProductFormProps) {
     mode: "onChange",
   });
 
-  function onSubmit(data: ProductFormValues) {
-    // In a real app, you'd send this data to your API
-    console.log(data);
-    
-    // Mock saving
-    const action = initialData ? "updated" : "created";
-    toast({
-      title: `Product ${action}!`,
-      description: `${data.name} has been successfully ${action}.`,
-    });
+  useEffect(() => {
+    if (state?.success) {
+      const action = initialData ? "updated" : "created";
+      toast({
+        title: `Product ${action}!`,
+        description: `${state.product?.name || 'Product'} has been successfully ${action}.`,
+      });
+      router.push("/admin/products");
+      router.refresh(); // To see changes
+    } else if (state?.error) {
+      toast({
+        title: "Error",
+        description: state.error,
+        variant: "destructive",
+      });
+    }
+  }, [state, initialData, router, toast]);
 
-    // Redirect after submission (e.g., back to products list)
-    router.push("/admin/products");
-    router.refresh(); // To see changes if data was actually persisted
-  }
+  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files) {
+      const filesArray = Array.from(event.target.files);
+      const newPreviews = filesArray.map(file => URL.createObjectURL(file));
+      setImagePreviews(prev => [...prev, ...newPreviews].slice(0, 5)); // Limit to 5 previews
+    }
+  };
+
+  // This function will be called by the form's onSubmit
+  const processForm = (data: ProductFormValues) => {
+    const formData = new FormData();
+    
+    // Append all fields from 'data' (ProductFormValues)
+    (Object.keys(data) as Array<keyof ProductFormValues>).forEach((key) => {
+        const value = data[key];
+        if (key === 'isFeatured') {
+          formData.append(key, value ? 'true' : 'false');
+        } else if (typeof value === 'number') {
+          formData.append(key, value.toString());
+        } else if (value !== undefined && value !== null && typeof value === 'string') {
+          formData.append(key, value);
+        }
+      });
+
+    // Handle file input from the ref
+    if (imageInputRef.current && imageInputRef.current.files) {
+      for (let i = 0; i < imageInputRef.current.files.length; i++) {
+        formData.append('productImages', imageInputRef.current.files[i]);
+      }
+    }
+    
+    if (productId) {
+      updateFormAction(formData);
+    } else {
+      addFormAction(formData);
+    }
+  };
 
   return (
     <Card>
@@ -99,7 +153,7 @@ export function ProductForm({ initialData, productId }: ProductFormProps) {
       </CardHeader>
       <CardContent>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+          <form onSubmit={form.handleSubmit(processForm)} className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <FormField
                 control={form.control}
@@ -219,22 +273,39 @@ export function ProductForm({ initialData, productId }: ProductFormProps) {
                 )}
               />
             </div>
-
-            {/* Image Upload Placeholder */}
+            
             <FormItem>
-                <FormLabel>Product Images</FormLabel>
+                <FormLabel htmlFor="productImages">Product Images</FormLabel>
                 <FormControl>
                     <div className="flex items-center justify-center w-full">
-                        <label htmlFor="dropzone-file" className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed rounded-lg cursor-pointer bg-muted hover:bg-muted/80 transition-colors">
+                        <label htmlFor="productImages-input" className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed rounded-lg cursor-pointer bg-muted hover:bg-muted/80 transition-colors">
                             <div className="flex flex-col items-center justify-center pt-5 pb-6">
                                 <UploadCloud className="w-8 h-8 mb-3 text-muted-foreground" />
                                 <p className="mb-2 text-sm text-muted-foreground"><span className="font-semibold">Click to upload</span> or drag and drop</p>
-                                <p className="text-xs text-muted-foreground">SVG, PNG, JPG or GIF (MAX. 800x400px)</p>
+                                <p className="text-xs text-muted-foreground">PNG, JPG, GIF (Max 5 files)</p>
                             </div>
-                            <Input id="dropzone-file" type="file" className="hidden" multiple />
+                            <Input 
+                              id="productImages-input" 
+                              type="file" 
+                              className="hidden" 
+                              multiple 
+                              accept="image/png, image/jpeg, image/gif"
+                              ref={imageInputRef}
+                              onChange={handleImageChange}
+                              name="productImages" // Important for FormData
+                            />
                         </label>
                     </div> 
                 </FormControl>
+                 {imagePreviews.length > 0 && (
+                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+                    {imagePreviews.map((src, index) => (
+                      <div key={index} className="relative aspect-square rounded-md overflow-hidden border">
+                        <img src={src} alt={`Preview ${index + 1}`} className="object-cover w-full h-full" />
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <FormDescription>Upload up to 5 product images. First image will be the main display.</FormDescription>
                 <FormMessage />
             </FormItem>
@@ -279,11 +350,11 @@ export function ProductForm({ initialData, productId }: ProductFormProps) {
             </div>
             
             <div className="flex justify-end space-x-2 pt-4">
-                <Button type="button" variant="outline" onClick={() => router.back()}>
+                <Button type="button" variant="outline" onClick={() => router.back()} disabled={isPending}>
                 Cancel
                 </Button>
-                <Button type="submit" className="bg-accent hover:bg-accent/90 text-accent-foreground">
-                {initialData ? "Save Changes" : "Add Product"}
+                <Button type="submit" className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isPending}>
+                {isPending ? (initialData ? "Saving..." : "Adding...") : (initialData ? "Save Changes" : "Add Product")}
                 </Button>
             </div>
           </form>

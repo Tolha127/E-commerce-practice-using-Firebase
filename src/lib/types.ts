@@ -3,7 +3,7 @@ export interface Product {
   name: string;
   description: string;
   price: number;
-  images: string[]; // URLs to images
+  images: string[]; // URLs to images, these will be public URLs after upload
   category: string;
   style?: string; 
   sizes: string[];

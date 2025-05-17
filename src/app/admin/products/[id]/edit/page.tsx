@@ -1,33 +1,55 @@
+
 "use client";
 
 import { ProductForm } from "@/components/admin/ProductForm";
-import { mockProducts } from "@/lib/mockData";
 import type { Product } from "@/lib/types";
 import { Separator } from "@/components/ui/separator";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { getProductAction } from "@/server/actions/productActions";
+import { useParams } from "next/navigation";
+import { Loader2 } from "lucide-react";
 
-export default function EditProductPage({ params }: { params: { id: string } }) {
+export default function EditProductPage() {
+  const params = useParams();
+  const productId = params.id as string; // Ensure id is string type
+
   const [product, setProduct] = useState<Product | null | undefined>(undefined); // undefined for loading state
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const foundProduct = mockProducts.find(p => p.id === params.id);
-    setProduct(foundProduct || null);
-  }, [params.id]);
+    if (productId) {
+      const fetchProduct = async () => {
+        try {
+          const foundProduct = await getProductAction(productId);
+          setProduct(foundProduct);
+          if (!foundProduct) {
+            setError("Product not found.");
+          }
+        } catch (e) {
+          console.error("Failed to fetch product:", e);
+          setError("Failed to load product details.");
+          setProduct(null);
+        }
+      };
+      fetchProduct();
+    }
+  }, [productId]);
 
   if (product === undefined) {
     return (
       <div className="container mx-auto px-4 py-8 text-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-2" />
         <p>Loading product details...</p>
       </div>
     );
   }
 
-  if (!product) {
+  if (error || !product) {
     return (
       <div className="container mx-auto px-4 py-8 text-center">
-        <h1 className="text-2xl font-semibold">Product not found.</h1>
+        <h1 className="text-2xl font-semibold">{error || "Product not found."}</h1>
         <Button asChild variant="link" className="mt-4">
           <Link href="/admin/products">Back to Products List</Link>
         </Button>
@@ -44,7 +66,7 @@ export default function EditProductPage({ params }: { params: { id: string } }) 
         </p>
       </header>
       <Separator />
-      <ProductForm initialData={product} productId={params.id} />
+      <ProductForm initialData={product} productId={productId} />
     </div>
   );
 }
