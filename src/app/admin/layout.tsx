@@ -5,7 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { logoutUser } from '@/app/login/actions'; // Import the server action
-import { cookies } from 'next/headers';
+// import { cookies } from 'next/headers'; // Removed, as it was for the admin_email cookie
 
 const AdminNavLink = ({ href, icon: Icon, children }: { href: string; icon: React.ElementType; children: React.ReactNode }) => (
   <Link href={href} passHref>
@@ -21,9 +21,8 @@ export default function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const cookieStore = cookies();
-  const adminEmail = cookieStore.get('admin_email')?.value || 'admin@stylecanvas.com';
-  const adminUsername = adminEmail.split('@')[0] || 'Admin';
+  const adminEmail = 'admin@stylecanvas.com'; // Reverted to hardcoded
+  const adminUsername = adminEmail.split('@')[0] || 'Admin'; // Reverted to deriving from hardcoded
   const avatarFallbackText = adminUsername.length >= 2 ? adminUsername.substring(0, 2).toUpperCase() : adminUsername.toUpperCase();
 
 
