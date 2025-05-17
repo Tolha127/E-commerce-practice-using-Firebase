@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import Link from 'next/link';
-import { useToast } from '@/hooks/use-toast';
+// import { useToast } from '@/hooks/use-toast'; // No longer needed for cart
 import { Label } from "@/components/ui/label";
 
 export default function ProductDetailPage() {
@@ -28,7 +28,7 @@ export default function ProductDetailPage() {
   const [selectedColor, setSelectedColor] = useState<{ name: string; hex: string } | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const { toast } = useToast();
+  // const { toast } = useToast(); // No longer needed for cart
 
   const productId = params?.id;
 
@@ -44,12 +44,12 @@ export default function ProductDetailPage() {
           setSelectedColor(foundProduct.colors[0]);
         }
       } else {
-        setProduct(null); // Explicitly set to null if product not found
+        setProduct(null);
       }
     }
   }, [productId]);
 
-  if (!product && !productId) { // Initial state before productId is available
+  if (!productId && typeof window !== 'undefined') { // Initial state before productId is available on client
     return (
       <div className="container mx-auto px-4 py-8 text-center">
         <p>Loading product identifier...</p>
@@ -76,13 +76,24 @@ export default function ProductDetailPage() {
     );
   }
 
-
   const handleAddToCart = () => {
-    toast({
-      title: `${product.name} added to cart!`,
-      description: `Size: ${selectedSize}, Color: ${selectedColor?.name}, Quantity: ${quantity}`,
-      variant: "default",
-    });
+    if (!product) return;
+
+    const messageParts = [
+      "Hi, I'm interested in purchasing this item from StyleCanvas:",
+      `Product: ${product.name}`,
+    ];
+    if (selectedSize) messageParts.push(`Size: ${selectedSize}`);
+    if (selectedColor) messageParts.push(`Color: ${selectedColor.name}`);
+    messageParts.push(`Quantity: ${quantity}`);
+    messageParts.push(`Price per item: $${product.price.toFixed(2)}`);
+    messageParts.push(`Total Price: $${(product.price * quantity).toFixed(2)}`);
+    
+    const message = messageParts.join('\n');
+    const whatsappNumber = "2349167108795"; // Ensure no '+' or spaces for wa.me link
+    const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
+    
+    window.open(whatsappUrl, '_blank'); // Open in a new tab
   };
 
   const nextImage = () => {
@@ -92,7 +103,6 @@ export default function ProductDetailPage() {
   const prevImage = () => {
     setCurrentImageIndex((prevIndex) => (prevIndex - 1 + product.images.length) % product.images.length);
   };
-
 
   return (
     <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -107,6 +117,7 @@ export default function ProductDetailPage() {
               objectFit="cover"
               className="transition-opacity duration-300 ease-in-out"
               data-ai-hint="fashion clothing detail"
+              priority={currentImageIndex === 0}
             />
              {product.images.length > 1 && (
               <>
@@ -198,13 +209,28 @@ export default function ProductDetailPage() {
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="quantity" className="text-sm font-medium">Quantity:</Label>
+            <Label htmlFor="quantity-input" className="text-sm font-medium">Quantity:</Label>
             <div className="flex items-center space-x-2">
               <Button variant="outline" size="icon" onClick={() => setQuantity(q => Math.max(1, q - 1))} disabled={quantity <= 1}>
                 <Minus className="h-4 w-4" />
               </Button>
-              <span id="quantity" aria-live="polite" className="w-10 text-center font-medium">{quantity}</span>
-              <Button variant="outline" size="icon" onClick={() => setQuantity(q => Math.min(10, q + 1))} disabled={quantity >= product.stock || quantity >=10}>
+              <Input
+                id="quantity-input"
+                type="number"
+                className="w-16 text-center"
+                value={quantity}
+                onChange={(e) => {
+                    const val = parseInt(e.target.value);
+                    if (val >= 1 && val <= product.stock && val <=10) setQuantity(val);
+                    else if (val < 1) setQuantity(1);
+                    else if (val > product.stock) setQuantity(product.stock);
+                    else if (val > 10) setQuantity(10);
+                }}
+                min="1"
+                max={Math.min(10, product.stock)}
+                aria-live="polite"
+              />
+              <Button variant="outline" size="icon" onClick={() => setQuantity(q => Math.min(Math.min(10, product.stock), q + 1))} disabled={quantity >= product.stock || quantity >=10}>
                 <Plus className="h-4 w-4" />
               </Button>
               {product.stock < 10 && product.stock > 0 && <span className="text-sm text-destructive">Only {product.stock} left!</span>}
@@ -216,7 +242,7 @@ export default function ProductDetailPage() {
 
           <Button size="lg" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground" onClick={handleAddToCart} disabled={product.stock === 0}>
             <ShoppingCart className="mr-2 h-5 w-5" />
-            {product.stock > 0 ? 'Add to Cart' : 'Out of Stock'}
+            {product.stock > 0 ? 'Add to Cart (via WhatsApp)' : 'Out of Stock'}
           </Button>
 
           <div className="text-sm text-muted-foreground">
@@ -227,4 +253,9 @@ export default function ProductDetailPage() {
       </div>
     </div>
   );
+}
+
+// Helper component for quantity input
+function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return <input {...props} />;
 }

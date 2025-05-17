@@ -1,8 +1,10 @@
+
 import Link from 'next/link';
 import { Home, ShoppingBag, Settings, Users, BarChart3, Shirt } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { logoutUser } from '@/app/login/actions'; // Import the server action
 
 const AdminNavLink = ({ href, icon: Icon, children }: { href: string; icon: React.ElementType; children: React.ReactNode }) => (
   <Link href={href} passHref>
@@ -46,9 +48,16 @@ export default function AdminLayout({
                     <p className="text-xs text-sidebar-foreground/70">admin@stylecanvas.com</p>
                 </div>
             </div>
-            <Button variant="outline" size="sm" className="w-full mt-3 border-sidebar-border text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
-              Logout
-            </Button>
+            <form action={logoutUser} className="w-full">
+              <Button 
+                type="submit" 
+                variant="outline" 
+                size="sm" 
+                className="w-full mt-3 border-sidebar-border text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              >
+                Logout
+              </Button>
+            </form>
         </div>
       </aside>
       <div className="flex flex-col sm:gap-4 sm:py-4 sm:pl-72 flex-1"> {/* Added pl-72 for sidebar width */}
