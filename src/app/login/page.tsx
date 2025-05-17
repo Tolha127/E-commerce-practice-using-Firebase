@@ -1,7 +1,8 @@
 
 "use client";
 
-import { useFormState, useFormStatus } from "react-dom";
+import { useActionState, useEffect } from "react"; // Changed from react-dom and useFormState
+import { useFormStatus } from "react-dom"; // useFormStatus remains in react-dom
 import { loginUser } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +10,6 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Shirt, LogIn } from "lucide-react";
 import Link from "next/link";
-import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 function LoginButton() {
@@ -26,7 +26,7 @@ function LoginButton() {
 }
 
 export default function LoginPage() {
-  const [state, formAction] = useFormState(loginUser, undefined);
+  const [state, formAction] = useActionState(loginUser, undefined); // Changed here
   const router = useRouter();
 
   useEffect(() => {
