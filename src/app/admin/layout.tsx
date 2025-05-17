@@ -5,6 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { logoutUser } from '@/app/login/actions'; // Import the server action
+import { cookies } from 'next/headers';
 
 const AdminNavLink = ({ href, icon: Icon, children }: { href: string; icon: React.ElementType; children: React.ReactNode }) => (
   <Link href={href} passHref>
@@ -20,6 +21,12 @@ export default function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const cookieStore = cookies();
+  const adminEmail = cookieStore.get('admin_email')?.value || 'admin@stylecanvas.com';
+  const adminUsername = adminEmail.split('@')[0] || 'Admin';
+  const avatarFallbackText = adminUsername.length >= 2 ? adminUsername.substring(0, 2).toUpperCase() : adminUsername.toUpperCase();
+
+
   return (
     <div className="flex min-h-screen bg-muted/40">
       <aside className="fixed inset-y-0 left-0 z-10 hidden w-64 flex-col border-r bg-sidebar sm:flex">
@@ -40,12 +47,12 @@ export default function AdminLayout({
          <div className="p-4 mt-auto border-t border-sidebar-border">
             <div className="flex items-center gap-3">
                 <Avatar className="h-9 w-9">
-                    <AvatarImage src="https://placehold.co/100x100.png?admin=avatar" alt="Admin User" data-ai-hint="person avatar"/>
-                    <AvatarFallback>AD</AvatarFallback>
+                    <AvatarImage src="https://placehold.co/100x100.png?admin=avatar" alt={`${adminUsername}'s avatar`} data-ai-hint="person avatar"/>
+                    <AvatarFallback>{avatarFallbackText}</AvatarFallback>
                 </Avatar>
                 <div>
-                    <p className="text-sm font-medium text-sidebar-foreground">Admin User</p>
-                    <p className="text-xs text-sidebar-foreground/70">admin@stylecanvas.com</p>
+                    <p className="text-sm font-medium text-sidebar-foreground">{adminUsername}</p>
+                    <p className="text-xs text-sidebar-foreground/70">{adminEmail}</p>
                 </div>
             </div>
             <form action={logoutUser} className="w-full">
