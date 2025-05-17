@@ -1,8 +1,9 @@
 
-"use client"; 
+"use client";
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
+import { useParams } from 'next/navigation';
 import { mockProducts } from '@/lib/mockData';
 import type { Product } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -18,9 +19,10 @@ import {
 } from '@/components/ui/select';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
-import { Label } from "@/components/ui/label"; // Added missing import
+import { Label } from "@/components/ui/label";
 
-export default function ProductDetailPage({ params }: { params: { id: string } }) {
+export default function ProductDetailPage() {
+  const params = useParams<{ id: string }>();
   const [product, setProduct] = useState<Product | null>(null);
   const [selectedSize, setSelectedSize] = useState<string>('');
   const [selectedColor, setSelectedColor] = useState<{ name: string; hex: string } | null>(null);
@@ -28,24 +30,35 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const { toast } = useToast();
 
-  const productId = params.id; // Extract id for clarity and stable reference if params object itself was unstable
+  const productId = params?.id;
 
   useEffect(() => {
-    // Use the extracted productId for finding the product
-    const foundProduct = mockProducts.find(p => p.id === productId);
-    if (foundProduct) {
-      setProduct(foundProduct);
-      if (foundProduct.sizes.length > 0) {
-        setSelectedSize(foundProduct.sizes[0]);
-      }
-      if (foundProduct.colors.length > 0) {
-        setSelectedColor(foundProduct.colors[0]);
+    if (productId) {
+      const foundProduct = mockProducts.find(p => p.id === productId);
+      if (foundProduct) {
+        setProduct(foundProduct);
+        if (foundProduct.sizes.length > 0) {
+          setSelectedSize(foundProduct.sizes[0]);
+        }
+        if (foundProduct.colors.length > 0) {
+          setSelectedColor(foundProduct.colors[0]);
+        }
+      } else {
+        setProduct(null); // Explicitly set to null if product not found
       }
     }
-  }, [productId]); // Depend on the extracted, stable productId
+  }, [productId]);
 
-  if (!product) {
+  if (!product && !productId) { // Initial state before productId is available
     return (
+      <div className="container mx-auto px-4 py-8 text-center">
+        <p>Loading product identifier...</p>
+      </div>
+    );
+  }
+
+  if (!product && productId) { // productId is available, but product is not found or still loading
+     return (
       <div className="container mx-auto px-4 py-8 text-center">
         <h1 className="text-2xl font-semibold">Product not found.</h1>
         <Button asChild variant="link" className="mt-4">
@@ -54,16 +67,24 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
       </div>
     );
   }
+  
+  if (!product) { // Fallback, should be covered by above, but good for safety
+    return (
+      <div className="container mx-auto px-4 py-8 text-center">
+        <p>Loading product details...</p>
+      </div>
+    );
+  }
+
 
   const handleAddToCart = () => {
-    // UI only, actual cart logic is out of scope
     toast({
       title: `${product.name} added to cart!`,
       description: `Size: ${selectedSize}, Color: ${selectedColor?.name}, Quantity: ${quantity}`,
-      variant: "default", 
+      variant: "default",
     });
   };
-  
+
   const nextImage = () => {
     setCurrentImageIndex((prevIndex) => (prevIndex + 1) % product.images.length);
   };
@@ -118,11 +139,11 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
         {/* Product Details */}
         <div className="space-y-6">
           <h1 className="text-3xl lg:text-4xl font-bold tracking-tight text-foreground">{product.name}</h1>
-          
+
           <div className="flex items-center space-x-2">
             <div className="flex items-center">
               {[...Array(5)].map((_, i) => (
-                <Star key={i} className={`h-5 w-5 ${i < 4 ? 'text-accent fill-accent' : 'text-muted-foreground'}`} /> // Mock rating
+                <Star key={i} className={`h-5 w-5 ${i < 4 ? 'text-accent fill-accent' : 'text-muted-foreground'}`} />
               ))}
             </div>
             <span className="text-sm text-muted-foreground">(123 reviews)</span>
@@ -131,14 +152,13 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
           {product.seasonalCollection && (
             <Badge variant="secondary" className="text-sm py-1 px-3">{product.seasonalCollection}</Badge>
           )}
-          
+
           <p className="text-3xl font-semibold text-primary">${product.price.toFixed(2)}</p>
-          
+
           <Separator />
 
           <p className="text-foreground/80 leading-relaxed">{product.description}</p>
 
-          {/* Size Selection */}
           {product.sizes.length > 0 && (
             <div className="space-y-2">
               <Label htmlFor="size-select" className="text-sm font-medium">Size:</Label>
@@ -155,7 +175,6 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
             </div>
           )}
 
-          {/* Color Selection */}
           {product.colors.length > 0 && (
             <div className="space-y-2">
               <Label className="text-sm font-medium">Color: <span className="font-normal text-muted-foreground">{selectedColor?.name}</span></Label>
@@ -178,21 +197,21 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
             </div>
           )}
 
-          {/* Quantity Selection */}
           <div className="space-y-2">
             <Label htmlFor="quantity" className="text-sm font-medium">Quantity:</Label>
             <div className="flex items-center space-x-2">
               <Button variant="outline" size="icon" onClick={() => setQuantity(q => Math.max(1, q - 1))} disabled={quantity <= 1}>
                 <Minus className="h-4 w-4" />
               </Button>
-              <span id="quantity" className="w-10 text-center font-medium">{quantity}</span>
+              <span id="quantity" aria-live="polite" className="w-10 text-center font-medium">{quantity}</span>
               <Button variant="outline" size="icon" onClick={() => setQuantity(q => Math.min(10, q + 1))} disabled={quantity >= product.stock || quantity >=10}>
                 <Plus className="h-4 w-4" />
               </Button>
-              {product.stock < 10 && <span className="text-sm text-destructive">Only {product.stock} left!</span>}
+              {product.stock < 10 && product.stock > 0 && <span className="text-sm text-destructive">Only {product.stock} left!</span>}
+              {product.stock === 0 && <span className="text-sm text-destructive">Out of stock</span>}
             </div>
           </div>
-          
+
           <Separator />
 
           <Button size="lg" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground" onClick={handleAddToCart} disabled={product.stock === 0}>
