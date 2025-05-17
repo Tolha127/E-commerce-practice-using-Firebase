@@ -1,3 +1,4 @@
+
 "use client"; 
 
 import { useState, useEffect } from 'react';
@@ -17,6 +18,7 @@ import {
 } from '@/components/ui/select';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
+import { Label } from "@/components/ui/label"; // Added missing import
 
 export default function ProductDetailPage({ params }: { params: { id: string } }) {
   const [product, setProduct] = useState<Product | null>(null);
@@ -26,8 +28,11 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const { toast } = useToast();
 
+  const productId = params.id; // Extract id for clarity and stable reference if params object itself was unstable
+
   useEffect(() => {
-    const foundProduct = mockProducts.find(p => p.id === params.id);
+    // Use the extracted productId for finding the product
+    const foundProduct = mockProducts.find(p => p.id === productId);
     if (foundProduct) {
       setProduct(foundProduct);
       if (foundProduct.sizes.length > 0) {
@@ -37,7 +42,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
         setSelectedColor(foundProduct.colors[0]);
       }
     }
-  }, [params.id]);
+  }, [productId]); // Depend on the extracted, stable productId
 
   if (!product) {
     return (
