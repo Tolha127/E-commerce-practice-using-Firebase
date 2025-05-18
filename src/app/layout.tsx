@@ -1,9 +1,11 @@
+
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
+// import dynamic from 'next/dynamic'; // No longer needed here
 import './globals.css';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
-import { Toaster } from "@/components/ui/toaster";
+import { ClientOnlyToaster } from '@/components/ClientOnlyToaster'; // Import the new client component
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -33,7 +35,7 @@ export default function RootLayout({
           {children}
         </main>
         <Footer />
-        <Toaster />
+        <ClientOnlyToaster /> {/* Use the new ClientOnlyToaster component */}
       </body>
     </html>
   );
