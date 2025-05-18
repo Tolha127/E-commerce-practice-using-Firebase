@@ -1,4 +1,18 @@
-import type { Product, Testimonial, Collection } from './types';
+
+import type { Product, Testimonial, Collection, ProductImage } from './types';
+
+const generateMockImages = (baseName: string, count: number): ProductImage[] => {
+  const images: ProductImage[] = [];
+  for (let i = 1; i <= count; i++) {
+    const imageName = `${baseName}-${i}.png`;
+    images.push({
+      url: `https://placehold.co/600x800.png?text=${encodeURIComponent(baseName)}-${i}`,
+      path: `mock/products/${baseName}/${imageName}`, // Mock GCS path
+      name: imageName,
+    });
+  }
+  return images;
+};
 
 export const mockProducts: Product[] = [
   {
@@ -6,7 +20,7 @@ export const mockProducts: Product[] = [
     name: 'Elegant Lavender Bliss Dress',
     description: 'A stunning dress perfect for evening occasions, crafted from the finest silk.',
     price: 129.99,
-    images: ['https://placehold.co/600x800.png?a=1', 'https://placehold.co/600x800.png?a=2', 'https://placehold.co/600x800.png?a=3'],
+    images: generateMockImages('lavender-dress', 3),
     category: 'Dresses',
     style: 'Formal',
     sizes: ['S', 'M', 'L'],
@@ -20,7 +34,7 @@ export const mockProducts: Product[] = [
     name: 'Golden Hour Top',
     description: 'A chic top that captures the essence of a golden sunset. Versatile and comfortable.',
     price: 59.99,
-    images: ['https://placehold.co/600x800.png?b=1', 'https://placehold.co/600x800.png?b=2'],
+    images: generateMockImages('golden-top', 2),
     category: 'Tops',
     style: 'Casual',
     sizes: ['XS', 'S', 'M', 'L', 'XL'],
@@ -33,7 +47,7 @@ export const mockProducts: Product[] = [
     name: 'Urban Flow Trousers',
     description: 'Comfortable and stylish trousers for the modern urbanite. Made with breathable cotton.',
     price: 79.99,
-    images: ['https://placehold.co/600x800.png?c=1'],
+    images: generateMockImages('urban-trousers', 1),
     category: 'Bottoms',
     style: 'Urban',
     sizes: ['S', 'M', 'L', 'XL'],
@@ -45,7 +59,7 @@ export const mockProducts: Product[] = [
     name: 'Indigo Dream Scarf',
     description: 'A luxurious scarf in deep indigo tones, perfect for adding a touch of sophistication.',
     price: 39.99,
-    images: ['https://placehold.co/600x400.png?d=1'],
+    images: [{ url: 'https://placehold.co/600x400.png?d=1', path: 'mock/products/indigo-scarf/scarf.png', name: 'scarf.png'}],
     category: 'Accessories',
     style: 'Elegant',
     sizes: ['One Size'],
@@ -58,7 +72,7 @@ export const mockProducts: Product[] = [
     name: 'Classic White Tee',
     description: 'A wardrobe essential. Soft, durable, and endlessly versatile.',
     price: 29.99,
-    images: ['https://placehold.co/600x800.png?e=1'],
+    images: generateMockImages('white-tee', 1),
     category: 'Tops',
     style: 'Basic',
     sizes: ['S', 'M', 'L', 'XL', 'XXL'],

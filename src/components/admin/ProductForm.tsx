@@ -18,14 +18,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import type { Product } from "@/lib/types";
+import type { Product } from "@/lib/types"; // Product type now includes ProductImage
 import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
-import { UploadCloud } from "lucide-react";
+import { UploadCloud, Loader2 } from "lucide-react";
 import { addProductAction, updateProductAction } from "@/server/actions/productActions";
-import { useActionState, useEffect, useState, useRef } from "react"; // Changed from react-dom and useFormState
+import { useActionState, useEffect, useState, useRef } from "react";
 
-const productFormSchema = z.object({
+const productFormSchemaClient = z.object({
   name: z.string().min(3, { message: "Product name must be at least 3 characters." }),
   description: z.string().min(10, { message: "Description must be at least 10 characters." }),
   price: z.coerce.number().positive({ message: "Price must be a positive number." }),
@@ -36,10 +36,9 @@ const productFormSchema = z.object({
   stock: z.coerce.number().int().min(0, { message: "Stock cannot be negative." }),
   isFeatured: z.boolean().default(false),
   seasonalCollection: z.string().optional(),
-  // productImages: typeof window === 'undefined' ? z.any() : z.instanceof(FileList).optional(), // For client-side validation with react-hook-form
 });
 
-type ProductFormValues = z.infer<typeof productFormSchema>;
+type ProductFormValues = z.infer<typeof productFormSchemaClient>;
 
 interface ProductFormProps {
   initialData?: Product | null;
@@ -50,11 +49,11 @@ export function ProductForm({ initialData, productId }: ProductFormProps) {
   const router = useRouter();
   const { toast } = useToast();
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const [imagePreviews, setImagePreviews] = useState<string[]>(initialData?.images || []);
+  // Image previews now store URLs, extracted from initialData.images which is Array<ProductImage>
+  const [imagePreviews, setImagePreviews] = useState<string[]>(initialData?.images.map(img => img.url) || []);
 
   const [addState, addFormAction, isAddPending] = useActionState(addProductAction, undefined);
   const [updateState, updateFormAction, isUpdatePending] = useActionState(
-    // Bind productId to updateProductAction if it exists
     productId ? updateProductAction.bind(null, productId) : async () => ({ error: "Product ID missing for update."}),
     undefined
   );
@@ -82,7 +81,7 @@ export function ProductForm({ initialData, productId }: ProductFormProps) {
       };
 
   const form = useForm<ProductFormValues>({
-    resolver: zodResolver(productFormSchema),
+    resolver: zodResolver(productFormSchemaClient),
     defaultValues,
     mode: "onChange",
   });
@@ -95,10 +94,10 @@ export function ProductForm({ initialData, productId }: ProductFormProps) {
         description: `${state.product?.name || 'Product'} has been successfully ${action}.`,
       });
       router.push("/admin/products");
-      router.refresh(); // To see changes
+      router.refresh();
     } else if (state?.error) {
       toast({
-        title: "Error",
+        title: "Operation Failed",
         description: state.error,
         variant: "destructive",
       });
@@ -109,36 +108,46 @@ export function ProductForm({ initialData, productId }: ProductFormProps) {
     if (event.target.files) {
       const filesArray = Array.from(event.target.files);
       const newPreviews = filesArray.map(file => URL.createObjectURL(file));
-      setImagePreviews(prev => [...prev, ...newPreviews].slice(0, 5)); // Limit to 5 previews
+      // If editing and new files are selected, these new previews are for the files to be uploaded.
+      // The server action will handle replacing old images with new ones.
+      // We want the previews to reflect what will be uploaded.
+      setImagePreviews(newPreviews.slice(0, 5));
     }
   };
-
-  // This function will be called by the form's onSubmit
-  const processForm = (data: ProductFormValues) => {
+  
+  const onSubmit = (data: ProductFormValues) => {
     const formData = new FormData();
     
-    // Append all fields from 'data' (ProductFormValues)
     (Object.keys(data) as Array<keyof ProductFormValues>).forEach((key) => {
         const value = data[key];
         if (key === 'isFeatured') {
           formData.append(key, value ? 'true' : 'false');
-        } else if (typeof value === 'number') {
-          formData.append(key, value.toString());
-        } else if (value !== undefined && value !== null && typeof value === 'string') {
-          formData.append(key, value);
+        } else if (value !== undefined && value !== null) {
+           formData.append(key, String(value));
         }
       });
 
-    // Handle file input from the ref
     if (imageInputRef.current && imageInputRef.current.files) {
-      for (let i = 0; i < imageInputRef.current.files.length; i++) {
-        formData.append('productImages', imageInputRef.current.files[i]);
+      const files = imageInputRef.current.files;
+      if (files.length > 5) {
+         toast({ title: "Too many images", description: "Please select a maximum of 5 images.", variant: "destructive"});
+         return;
+      }
+      for (let i = 0; i < files.length; i++) {
+        formData.append('productImages', files[i]);
       }
     }
     
     if (productId) {
+      // For updates, if no new files are selected, existing images are kept unless server logic explicitly removes them.
+      // Our server logic: if new files are sent, old ones are deleted and replaced. If no new files, old ones kept.
       updateFormAction(formData);
     } else {
+      // For new products, images are required.
+      if (!imageInputRef.current || !imageInputRef.current.files || imageInputRef.current.files.length === 0) {
+        toast({ title: "Missing Images", description: "Please upload at least one product image.", variant: "destructive"});
+        return;
+      }
       addFormAction(formData);
     }
   };
@@ -148,13 +157,14 @@ export function ProductForm({ initialData, productId }: ProductFormProps) {
       <CardHeader>
         <CardTitle>{initialData ? "Edit Product" : "Add New Product"}</CardTitle>
         <CardDescription>
-          {initialData ? `Update details for ${initialData.name}.` : "Fill in the details for the new product."}
+          {initialData ? `Update details for ${initialData.name}. New image uploads will replace all existing images.` : "Fill in the details for the new product."}
         </CardDescription>
       </CardHeader>
       <CardContent>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(processForm)} className="space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+            {/* ... other form fields remain the same ... */}
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <FormField
                 control={form.control}
                 name="name"
@@ -273,16 +283,16 @@ export function ProductForm({ initialData, productId }: ProductFormProps) {
                 )}
               />
             </div>
-            
+
             <FormItem>
-                <FormLabel htmlFor="productImages">Product Images</FormLabel>
+                <FormLabel htmlFor="productImages">Product Images (Max 5)</FormLabel>
                 <FormControl>
                     <div className="flex items-center justify-center w-full">
                         <label htmlFor="productImages-input" className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed rounded-lg cursor-pointer bg-muted hover:bg-muted/80 transition-colors">
                             <div className="flex flex-col items-center justify-center pt-5 pb-6">
                                 <UploadCloud className="w-8 h-8 mb-3 text-muted-foreground" />
                                 <p className="mb-2 text-sm text-muted-foreground"><span className="font-semibold">Click to upload</span> or drag and drop</p>
-                                <p className="text-xs text-muted-foreground">PNG, JPG, GIF (Max 5 files)</p>
+                                <p className="text-xs text-muted-foreground">PNG, JPG, GIF. Min 1, Max 5 files.</p>
                             </div>
                             <Input 
                               id="productImages-input" 
@@ -292,7 +302,7 @@ export function ProductForm({ initialData, productId }: ProductFormProps) {
                               accept="image/png, image/jpeg, image/gif"
                               ref={imageInputRef}
                               onChange={handleImageChange}
-                              name="productImages" // Important for FormData
+                              name="productImages"
                             />
                         </label>
                     </div> 
@@ -301,15 +311,17 @@ export function ProductForm({ initialData, productId }: ProductFormProps) {
                   <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
                     {imagePreviews.map((src, index) => (
                       <div key={index} className="relative aspect-square rounded-md overflow-hidden border">
-                        <img src={src} alt={`Preview ${index + 1}`} className="object-cover w-full h-full" />
+                        {/* Ensure src is a valid URL (blob URL for previews, http/https for existing) */}
+                        <img src={src} alt={`Preview ${index + 1}`} className="object-cover w-full h-full" data-ai-hint="product image preview" />
                       </div>
                     ))}
                   </div>
                 )}
-                <FormDescription>Upload up to 5 product images. First image will be the main display.</FormDescription>
+                <FormDescription>
+                  {initialData ? "Uploading new images will replace all current images for this product." : "Upload up to 5 product images. First image will be the main display."}
+                </FormDescription>
                 <FormMessage />
             </FormItem>
-
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                <FormField
@@ -354,6 +366,7 @@ export function ProductForm({ initialData, productId }: ProductFormProps) {
                 Cancel
                 </Button>
                 <Button type="submit" className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isPending}>
+                {isPending ? <Loader2 className="animate-spin mr-2" /> : null}
                 {isPending ? (initialData ? "Saving..." : "Adding...") : (initialData ? "Save Changes" : "Add Product")}
                 </Button>
             </div>

@@ -1,15 +1,17 @@
 
 // src/server/services/productService.ts
-import type { Product } from '@/lib/types';
-import { db, storageAdmin } from '@/server/lib/firebaseAdmin'; // Import initialized Firebase admin
-import { v4 as uuidv4 } from 'uuid'; // For generating unique IDs
+import type { Product, ProductImage } from '@/lib/types';
+import { db, storageAdmin } from '@/server/lib/firebaseAdmin';
+import { v4 as uuidv4 } from 'uuid';
 
 // --- Image Upload ---
-async function uploadImage(file: File, productId: string): Promise<string> {
+async function uploadImage(file: File, productId: string): Promise<ProductImage> {
   const bucket = storageAdmin.bucket();
-  // Create a unique filename to prevent overwrites and organize by product
-  const fileName = `products/${productId}/${uuidv4()}-${file.name.replace(/\s+/g, '_')}`;
-  const blob = bucket.file(fileName);
+  const originalFileName = file.name.replace(/\s+/g, '_'); // Sanitize original name
+  const uniqueFileName = `${uuidv4()}-${originalFileName}`;
+  const filePath = `products/${productId}/${uniqueFileName}`; // This is the GCS path
+  
+  const blob = bucket.file(filePath);
 
   const buffer = Buffer.from(await file.arrayBuffer());
 
@@ -18,7 +20,7 @@ async function uploadImage(file: File, productId: string): Promise<string> {
       metadata: {
         contentType: file.type,
       },
-      resumable: false, // Using non-resumable upload for simplicity
+      resumable: false,
     });
     blobStream.on('error', (err) => {
       console.error("Error uploading image to Firebase Storage:", err);
@@ -30,32 +32,24 @@ async function uploadImage(file: File, productId: string): Promise<string> {
     blobStream.end(buffer);
   });
 
-  // Make the file public to get a public URL
-  // Note: Ensure your Storage bucket rules allow public reads for these files
   await blob.makePublic();
-  return blob.publicUrl();
+  const publicUrl = blob.publicUrl();
+  
+  return { url: publicUrl, path: filePath, name: originalFileName };
 }
 
-async function deleteImage(imageUrl: string): Promise<void> {
+async function deleteImage(filePath: string): Promise<void> {
   try {
-    const bucketName = storageAdmin.bucket().name;
-    // Expected URL format: https://storage.googleapis.com/YOUR_BUCKET_NAME/path/to/file
-    const prefix = `https://storage.googleapis.com/${bucketName}/`;
-    if (imageUrl.startsWith(prefix)) {
-      const filePath = imageUrl.substring(prefix.length);
-      const file = storageAdmin.bucket().file(decodeURIComponent(filePath)); // Decode URI component for file names with special chars
-      await file.delete();
-      console.log(`Successfully deleted ${filePath} from storage.`);
-    } else {
-      console.warn(`Could not parse Firebase Storage file path from URL: ${imageUrl}. Manual deletion might be required.`);
-    }
+    const file = storageAdmin.bucket().file(filePath);
+    await file.delete();
+    console.log(`Successfully deleted ${filePath} from storage.`);
   } catch (error: any) {
-    // Log error but don't let it necessarily block product deletion if image is already gone or URL is malformed
     if (error.code === 404) {
-        console.warn(`Image not found for deletion (already deleted or wrong URL): ${imageUrl}`);
+        console.warn(`Image not found for deletion (already deleted or wrong path): ${filePath}`);
     } else {
-        console.error(`Failed to delete image ${imageUrl}:`, error);
+        console.error(`Failed to delete image ${filePath}:`, error);
     }
+    // Decide if you want to re-throw or just log. For now, logging.
   }
 }
 
@@ -63,9 +57,9 @@ async function deleteImage(imageUrl: string): Promise<void> {
 const PRODUCTS_COLLECTION = 'products';
 
 export async function createProductInDB(
-  productData: Omit<Product, 'id'> // Images should be URLs already
+  productData: Omit<Product, 'id'> 
 ): Promise<Product> {
-  const newId = uuidv4(); // Generate a unique ID for the product
+  const newId = uuidv4();
   const productWithId: Product = { ...productData, id: newId };
   
   await db.collection(PRODUCTS_COLLECTION).doc(newId).set(productWithId);
@@ -88,7 +82,7 @@ export async function getProductFromDB(productId: string): Promise<Product | nul
 
 export async function getAllProductsFromDB(): Promise<Product[]> {
   console.log("Service: Fetching all products from Firestore");
-  const snapshot = await db.collection(PRODUCTS_COLLECTION).get();
+  const snapshot = await db.collection(PRODUCTS_COLLECTION).orderBy('name').get(); // Added orderBy for consistency
   const products: Product[] = [];
   snapshot.forEach(doc => products.push(doc.data() as Product));
   return products;
@@ -96,7 +90,7 @@ export async function getAllProductsFromDB(): Promise<Product[]> {
 
 export async function updateProductInDB(
   productId: string,
-  productUpdateData: Partial<Omit<Product, 'id'>> // Images are URLs
+  productUpdateData: Partial<Omit<Product, 'id'>>
 ): Promise<Product | null> {
   console.log("Service: Updating product in Firestore", productId);
   const docRef = db.collection(PRODUCTS_COLLECTION).doc(productId);
@@ -114,17 +108,15 @@ export async function updateProductInDB(
 
 export async function deleteProductFromDB(productId: string): Promise<boolean> {
   console.log("Service: Deleting product from Firestore", productId);
-  const product = await getProductFromDB(productId); // Fetch product to get image URLs for deletion
+  const product = await getProductFromDB(productId); 
 
   if (product && product.images && product.images.length > 0) {
     console.log(`Service: Deleting ${product.images.length} associated images for product ${productId}.`);
-    for (const imageUrl of product.images) {
-      await deleteImage(imageUrl);
+    for (const image of product.images) {
+      await deleteImage(image.path); // Use the stored GCS path for deletion
     }
   } else if (!product) {
      console.warn(`Service: Product ${productId} not found for deletion, or it has no images.`);
-     // Decide if this should return true or false. If product not found, it's effectively "deleted".
-     // Returning true here as the state desired (product gone) is achieved.
      return true;
   }
 
@@ -136,49 +128,52 @@ export async function deleteProductFromDB(productId: string): Promise<boolean> {
 // --- Combined Operations ---
 
 export async function saveProduct(
-  data: Omit<Product, 'id' | 'images'>, // Raw form data excluding id and pre-upload images
-  imageFiles: File[], // Files to be uploaded
+  data: Omit<Product, 'id' | 'images'>,
+  imageFiles: File[],
   existingProductId?: string
 ): Promise<Product | null> {
   
-  const resolvedProductId = existingProductId || uuidv4(); // Use existing ID or generate one for organizing images
-  let uploadedImageUrls: string[] = [];
+  const resolvedProductId = existingProductId || uuidv4();
+  let newUploadedImages: ProductImage[] = [];
 
   if (imageFiles && imageFiles.length > 0) {
     console.log(`Service: Uploading ${imageFiles.length} new images for product ID ${resolvedProductId}.`);
     for (const file of imageFiles) {
-      const url = await uploadImage(file, resolvedProductId);
-      uploadedImageUrls.push(url);
+      const uploadedImage = await uploadImage(file, resolvedProductId);
+      newUploadedImages.push(uploadedImage);
     }
   }
 
   if (existingProductId) {
-    // Updating existing product
     const existingProduct = await getProductFromDB(existingProductId);
     if (!existingProduct) {
       console.error(`Service Error: Product ${existingProductId} not found for update.`);
       return null;
     }
 
-    let finalImageUrls = existingProduct.images || [];
+    let finalImages = existingProduct.images || [];
 
-    if (uploadedImageUrls.length > 0) {
+    if (newUploadedImages.length > 0) {
       // New images were uploaded, replace old ones
-      console.log(`Service: Replacing images for product ${existingProductId}. Deleting ${existingProduct.images.length} old images.`);
-      for (const oldImageUrl of existingProduct.images) {
-        await deleteImage(oldImageUrl);
+      console.log(`Service: Replacing images for product ${existingProductId}. Deleting ${finalImages.length} old images.`);
+      for (const oldImage of finalImages) {
+        await deleteImage(oldImage.path); // Delete old images using their GCS path
       }
-      finalImageUrls = uploadedImageUrls;
+      finalImages = newUploadedImages; // Use only the newly uploaded images
     }
-    // If no new images uploaded (uploadedImageUrls is empty), finalImageUrls remains existingProduct.images
+    // If no new images uploaded (newUploadedImages is empty), finalImages remains existingProduct.images
 
-    const productUpdatePayload = { ...data, images: finalImageUrls };
+    const productUpdatePayload = { ...data, images: finalImages };
     return updateProductInDB(existingProductId, productUpdatePayload);
 
   } else {
     // Creating new product
-    const productPayload = { ...data, images: uploadedImageUrls };
-    // createProductInDB will assign its own ID, the resolvedProductId was mainly for image path organization
+    if (newUploadedImages.length === 0) {
+        // This case should be caught by action validation, but as a safeguard
+        console.error("Service Error: Attempted to create a new product without images.");
+        throw new Error("At least one image is required to create a new product.");
+    }
+    const productPayload = { ...data, images: newUploadedImages };
     return createProductInDB(productPayload);
   }
 }

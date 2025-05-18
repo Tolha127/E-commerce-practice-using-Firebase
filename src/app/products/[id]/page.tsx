@@ -4,12 +4,12 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { useParams } from 'next/navigation';
-import { mockProducts } from '@/lib/mockData';
-import type { Product } from '@/lib/types';
+import { mockProducts } from '@/lib/mockData'; // Will be updated if product fetching changes
+import type { Product } from '@/lib/types'; // Product type now uses ProductImage
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Star, Minus, Plus, ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Star, Minus, Plus, ShoppingCart, ChevronLeft, ChevronRight, Loader2, AlertTriangle } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -18,70 +18,99 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import Link from 'next/link';
-// import { useToast } from '@/hooks/use-toast'; // No longer needed for cart
 import { Label } from "@/components/ui/label";
+import { getProductAction } from '@/server/actions/productActions'; // Using server action
+import { useToast } from '@/hooks/use-toast';
 
 export default function ProductDetailPage() {
   const params = useParams<{ id: string }>();
   const [product, setProduct] = useState<Product | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedSize, setSelectedSize] = useState<string>('');
   const [selectedColor, setSelectedColor] = useState<{ name: string; hex: string } | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  // const { toast } = useToast(); // No longer needed for cart
+  const { toast } = useToast();
 
   const productId = params?.id;
 
   useEffect(() => {
     if (productId) {
-      const foundProduct = mockProducts.find(p => p.id === productId);
-      if (foundProduct) {
-        setProduct(foundProduct);
-        if (foundProduct.sizes.length > 0) {
-          setSelectedSize(foundProduct.sizes[0]);
-        }
-        if (foundProduct.colors.length > 0) {
-          setSelectedColor(foundProduct.colors[0]);
-        }
-      } else {
-        setProduct(null);
-      }
-    }
-  }, [productId]);
+      setIsLoading(true);
+      setError(null);
+      const fetchProduct = async () => {
+        try {
+          // Replace mockProducts.find with actual data fetching if not using mock for this page
+          // const foundProduct = mockProducts.find(p => p.id === productId);
+          const foundProduct = await getProductAction(productId);
 
-  if (!productId && typeof window !== 'undefined') { // Initial state before productId is available on client
+          if (foundProduct) {
+            setProduct(foundProduct);
+            if (foundProduct.sizes.length > 0) {
+              setSelectedSize(foundProduct.sizes[0]);
+            }
+            if (foundProduct.colors.length > 0) {
+              setSelectedColor(foundProduct.colors[0]);
+            }
+          } else {
+            setError("Product not found.");
+            setProduct(null);
+          }
+        } catch (e: any) {
+           const errorMessage = e.message || "Failed to load product details.";
+           setError(errorMessage);
+           toast({ title: "Error", description: errorMessage, variant: "destructive"});
+           setProduct(null);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      fetchProduct();
+    } else {
+        setIsLoading(false); // No ID, so not loading
+    }
+  }, [productId, toast]);
+
+  if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8 text-center">
-        <p>Loading product identifier...</p>
+      <div className="container mx-auto px-4 py-8 text-center flex flex-col items-center justify-center min-h-[60vh]">
+        <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
+        <p className="text-lg text-muted-foreground">Loading product details...</p>
       </div>
     );
   }
 
-  if (!product && productId) { // productId is available, but product is not found or still loading
+  if (error) {
      return (
-      <div className="container mx-auto px-4 py-8 text-center">
-        <h1 className="text-2xl font-semibold">Product not found.</h1>
-        <Button asChild variant="link" className="mt-4">
+      <div className="container mx-auto px-4 py-8 text-center flex flex-col items-center justify-center min-h-[60vh]">
+        <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
+        <h1 className="text-2xl font-semibold text-destructive mb-2">Oops! Something went wrong.</h1>
+        <p className="text-muted-foreground mb-4">{error}</p>
+        <Button asChild variant="outline">
           <Link href="/products">Back to Products</Link>
         </Button>
       </div>
     );
   }
   
-  if (!product) { // Fallback, should be covered by above, but good for safety
-    return (
-      <div className="container mx-auto px-4 py-8 text-center">
-        <p>Loading product details...</p>
+  if (!product) {
+     return ( // Should ideally be caught by error state if fetch fails or not found
+      <div className="container mx-auto px-4 py-8 text-center flex flex-col items-center justify-center min-h-[60vh]">
+        <AlertTriangle className="h-12 w-12 text-muted-foreground mb-4" />
+        <h1 className="text-2xl font-semibold">Product Not Found</h1>
+        <p className="text-muted-foreground mb-4">The product you are looking for does not exist or may have been removed.</p>
+        <Button asChild variant="default">
+          <Link href="/products">Browse Other Products</Link>
+        </Button>
       </div>
     );
   }
 
   const handleAddToCart = () => {
-    if (!product) return;
-
     const messageParts = [
       "Hi, I'm interested in purchasing this item from StyleCanvas:",
-      `Product: ${product.name}`,
+      `Product: ${product.name} (ID: ${product.id})`,
     ];
     if (selectedSize) messageParts.push(`Size: ${selectedSize}`);
     if (selectedColor) messageParts.push(`Color: ${selectedColor.name}`);
@@ -90,10 +119,10 @@ export default function ProductDetailPage() {
     messageParts.push(`Total Price: $${(product.price * quantity).toFixed(2)}`);
     
     const message = messageParts.join('\n');
-    const whatsappNumber = "2349167108795"; // Ensure no '+' or spaces for wa.me link
+    const whatsappNumber = "2349167108795";
     const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
     
-    window.open(whatsappUrl, '_blank'); // Open in a new tab
+    window.open(whatsappUrl, '_blank');
   };
 
   const nextImage = () => {
@@ -104,20 +133,23 @@ export default function ProductDetailPage() {
     setCurrentImageIndex((prevIndex) => (prevIndex - 1 + product.images.length) % product.images.length);
   };
 
+  const currentImageSrc = product.images[currentImageIndex]?.url || 'https://placehold.co/600x800.png?text=Image+Not+Available';
+
+
   return (
     <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-12">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-12">
-        {/* Image Gallery */}
         <div className="space-y-4">
-          <div className="relative aspect-[3/4] w-full overflow-hidden rounded-lg shadow-lg">
+          <div className="relative aspect-[3/4] w-full overflow-hidden rounded-lg shadow-lg bg-muted">
             <Image
-              src={product.images[currentImageIndex]}
+              src={currentImageSrc}
               alt={`${product.name} - Image ${currentImageIndex + 1}`}
               layout="fill"
               objectFit="cover"
               className="transition-opacity duration-300 ease-in-out"
               data-ai-hint="fashion clothing detail"
               priority={currentImageIndex === 0}
+              unoptimized={currentImageSrc.startsWith('https://placehold.co')} // Avoid optimizing placeholder.co
             />
              {product.images.length > 1 && (
               <>
@@ -134,20 +166,26 @@ export default function ProductDetailPage() {
             <div className="grid grid-cols-4 gap-2">
               {product.images.map((img, index) => (
                 <button
-                  key={index}
+                  key={img.path || index} // Use path for key if available
                   onClick={() => setCurrentImageIndex(index)}
                   className={`relative aspect-square rounded-md overflow-hidden border-2 ${
                     index === currentImageIndex ? 'border-primary ring-2 ring-primary ring-offset-2' : 'border-transparent'
-                  } transition-all`}
+                  } transition-all bg-muted`}
                 >
-                  <Image src={img} alt={`${product.name} thumbnail ${index + 1}`} layout="fill" objectFit="cover" data-ai-hint="fashion clothing thumbnail" />
+                  <Image 
+                    src={img.url || 'https://placehold.co/100x100.png'} 
+                    alt={`${product.name} thumbnail ${index + 1}`} 
+                    layout="fill" 
+                    objectFit="cover" 
+                    data-ai-hint="fashion clothing thumbnail"
+                    unoptimized={img.url?.startsWith('https://placehold.co')}
+                   />
                 </button>
               ))}
             </div>
           )}
         </div>
 
-        {/* Product Details */}
         <div className="space-y-6">
           <h1 className="text-3xl lg:text-4xl font-bold tracking-tight text-foreground">{product.name}</h1>
 
@@ -157,7 +195,7 @@ export default function ProductDetailPage() {
                 <Star key={i} className={`h-5 w-5 ${i < 4 ? 'text-accent fill-accent' : 'text-muted-foreground'}`} />
               ))}
             </div>
-            <span className="text-sm text-muted-foreground">(123 reviews)</span>
+            <span className="text-sm text-muted-foreground">(123 reviews)</span> {/* Mock reviews */}
           </div>
 
           {product.seasonalCollection && (
@@ -214,20 +252,24 @@ export default function ProductDetailPage() {
               <Button variant="outline" size="icon" onClick={() => setQuantity(q => Math.max(1, q - 1))} disabled={quantity <= 1}>
                 <Minus className="h-4 w-4" />
               </Button>
-              <Input
+              <input
                 id="quantity-input"
                 type="number"
-                className="w-16 text-center"
+                className="w-16 text-center h-10 rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 value={quantity}
                 onChange={(e) => {
                     const val = parseInt(e.target.value);
-                    if (val >= 1 && val <= product.stock && val <=10) setQuantity(val);
-                    else if (val < 1) setQuantity(1);
-                    else if (val > product.stock) setQuantity(product.stock);
-                    else if (val > 10) setQuantity(10);
+                    if (!isNaN(val)) {
+                        if (val >= 1 && val <= product.stock && val <=10) setQuantity(val);
+                        else if (val < 1) setQuantity(1);
+                        else if (val > product.stock) setQuantity(product.stock);
+                        else if (val > 10) setQuantity(10);
+                    } else {
+                        setQuantity(1); // Reset to 1 if input is not a number
+                    }
                 }}
                 min="1"
-                max={Math.min(10, product.stock)}
+                max={Math.min(10, product.stock)} // Max 10 or available stock, whichever is less
                 aria-live="polite"
               />
               <Button variant="outline" size="icon" onClick={() => setQuantity(q => Math.min(Math.min(10, product.stock), q + 1))} disabled={quantity >= product.stock || quantity >=10}>
@@ -248,14 +290,10 @@ export default function ProductDetailPage() {
           <div className="text-sm text-muted-foreground">
             <p>Category: {product.category}</p>
             {product.style && <p>Style: {product.style}</p>}
+            <p>Available Stock: {product.stock}</p>
           </div>
         </div>
       </div>
     </div>
   );
-}
-
-// Helper component for quantity input
-function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} />;
 }

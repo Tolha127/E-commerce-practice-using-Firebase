@@ -1,10 +1,11 @@
+
 // This page now fetches data using a server action and handles delete via a client-side interaction.
 "use client";
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useEffect, useState, useTransition } from 'react';
-import type { Product } from '@/lib/types';
+import { useEffect, useState } from 'react'; // Removed useTransition as deleteProductAction is awaited directly
+import type { Product } from '@/lib/types'; // Product type now uses ProductImage
 import { getProductsAction, deleteProductAction } from '@/server/actions/productActions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,7 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { MoreHorizontal, PlusCircle, Edit, Trash2, Loader2 } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Edit, Trash2, Loader2, AlertTriangle } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,24 +28,28 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { useRouter } from 'next/navigation';
+// import { useRouter } from 'next/navigation'; // Not strictly needed if not redirecting
 
 export default function AdminProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isDeleting, startDeleteTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
   const { toast } = useToast();
-  const router = useRouter();
+  // const router = useRouter(); // Keep if you need router.refresh() for some reason
 
   useEffect(() => {
     async function fetchProducts() {
       setIsLoading(true);
+      setError(null);
       try {
         const fetchedProducts = await getProductsAction();
         setProducts(fetchedProducts);
-      } catch (error) {
-        toast({ title: "Error", description: "Failed to fetch products.", variant: "destructive" });
-        console.error(error);
+      } catch (e: any) {
+        const errorMessage = e.message || "Failed to fetch products.";
+        setError(errorMessage);
+        toast({ title: "Error Fetching Products", description: errorMessage, variant: "destructive" });
+        console.error(e);
       } finally {
         setIsLoading(false);
       }
@@ -56,17 +61,20 @@ export default function AdminProductsPage() {
     const confirmed = window.confirm("Are you sure you want to delete this product? This action cannot be undone.");
     if (!confirmed) return;
 
-    startDeleteTransition(async () => {
+    setIsDeletingId(productId);
+    try {
       const result = await deleteProductAction(productId);
       if (result.success) {
         toast({ title: "Success", description: "Product deleted successfully." });
-        // Refetch products or remove from local state
         setProducts(prev => prev.filter(p => p.id !== productId));
-        // router.refresh(); // Server action already calls revalidatePath
       } else {
-        toast({ title: "Error", description: result.error || "Failed to delete product.", variant: "destructive" });
+        toast({ title: "Error Deleting Product", description: result.error || "Failed to delete product.", variant: "destructive" });
       }
-    });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "An unexpected error occurred during deletion.", variant: "destructive" });
+    } finally {
+      setIsDeletingId(null);
+    }
   };
 
   if (isLoading) {
@@ -74,6 +82,17 @@ export default function AdminProductsPage() {
       <div className="flex justify-center items-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
         <p className="ml-2">Loading products...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col justify-center items-center h-64 text-destructive">
+        <AlertTriangle className="h-12 w-12 mb-4" />
+        <h2 className="text-xl font-semibold">Failed to load products</h2>
+        <p className="text-sm">{error}</p>
+        <Button onClick={() => window.location.reload()} variant="outline" className="mt-4">Retry</Button>
       </div>
     );
   }
@@ -122,9 +141,9 @@ export default function AdminProductsPage() {
                         alt={product.name}
                         className="aspect-square rounded-md object-cover"
                         height="64"
-                        src={product.images[0] || 'https://placehold.co/64x64.png?text=N/A'}
+                        src={product.images[0]?.url || 'https://placehold.co/64x64.png?text=N/A'}
                         width="64"
-                        data-ai-hint="product image"
+                        data-ai-hint="product thumbnail"
                       />
                     </TableCell>
                     <TableCell className="font-medium">{product.name}</TableCell>
@@ -136,8 +155,8 @@ export default function AdminProductsPage() {
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button aria-haspopup="true" size="icon" variant="ghost" disabled={isDeleting}>
-                            <MoreHorizontal className="h-4 w-4" />
+                          <Button aria-haspopup="true" size="icon" variant="ghost" disabled={isDeletingId === product.id}>
+                            {isDeletingId === product.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
                             <span className="sr-only">Toggle menu</span>
                           </Button>
                         </DropdownMenuTrigger>
@@ -152,9 +171,9 @@ export default function AdminProductsPage() {
                           <DropdownMenuItem
                             className="text-destructive focus:text-destructive focus:bg-destructive/10 flex items-center cursor-pointer"
                             onSelect={() => handleDeleteProduct(product.id)}
-                            disabled={isDeleting}
+                            disabled={!!isDeletingId}
                           >
-                              {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                              {isDeletingId === product.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
                               Delete
                           </DropdownMenuItem>
                         </DropdownMenuContent>
@@ -167,7 +186,6 @@ export default function AdminProductsPage() {
           )}
         </CardContent>
       </Card>
-      {/* TODO: Add pagination */}
     </div>
   );
 }

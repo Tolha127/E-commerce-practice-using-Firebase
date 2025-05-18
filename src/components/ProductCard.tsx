@@ -1,6 +1,7 @@
+
 import Image from 'next/image';
 import Link from 'next/link';
-import type { Product } from '@/lib/types';
+import type { Product } from '@/lib/types'; // Product type now uses ProductImage
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,18 +12,21 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product }: ProductCardProps) {
+  const imageUrl = product.images[0]?.url || 'https://placehold.co/600x800.png?text=N/A';
+
   return (
-    <Card className="overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col h-full">
+    <Card className="overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col h-full group">
       <CardHeader className="p-0">
         <Link href={`/products/${product.id}`} aria-label={`View details for ${product.name}`}>
-          <div className="aspect-[3/4] relative overflow-hidden">
+          <div className="aspect-[3/4] relative overflow-hidden bg-muted">
             <Image
-              src={product.images[0]}
+              src={imageUrl}
               alt={product.name}
               fill
               sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
               className="object-cover group-hover:scale-105 transition-transform duration-300"
-              data-ai-hint="fashion product"
+              data-ai-hint="fashion product clothing"
+              unoptimized={imageUrl.startsWith('https://placehold.co')} // Avoid optimizing placeholder.co
             />
           </div>
         </Link>
