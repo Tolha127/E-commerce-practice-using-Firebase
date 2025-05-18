@@ -1,77 +1,136 @@
-// Placeholder for product service using a database (e.g., Firestore) and storage (e.g., Firebase Storage)
-// In a real application, you would import and use your Firebase admin SDK or other DB clients here.
-import type { Product } from '@/lib/types';
-import { mockProducts } from '@/lib/mockData'; // Using mock data for now
 
-// --- Image Upload Placeholder ---
-// Simulates uploading a file and returns a public URL.
-async function uploadImage(file: File): Promise<string> {
-  console.log(`Simulating upload for: ${file.name}`);
-  // In a real scenario, upload to Firebase Storage or similar
-  // and return the public download URL.
-  await new Promise(resolve => setTimeout(resolve, 500)); // Simulate network delay
-  return `https://placehold.co/600x800.png?text=${encodeURIComponent(file.name)}`;
+// src/server/services/productService.ts
+import type { Product } from '@/lib/types';
+import { db, storageAdmin } from '@/server/lib/firebaseAdmin'; // Import initialized Firebase admin
+import { v4 as uuidv4 } from 'uuid'; // For generating unique IDs
+
+// --- Image Upload ---
+async function uploadImage(file: File, productId: string): Promise<string> {
+  const bucket = storageAdmin.bucket();
+  // Create a unique filename to prevent overwrites and organize by product
+  const fileName = `products/${productId}/${uuidv4()}-${file.name.replace(/\s+/g, '_')}`;
+  const blob = bucket.file(fileName);
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  await new Promise((resolve, reject) => {
+    const blobStream = blob.createWriteStream({
+      metadata: {
+        contentType: file.type,
+      },
+      resumable: false, // Using non-resumable upload for simplicity
+    });
+    blobStream.on('error', (err) => {
+      console.error("Error uploading image to Firebase Storage:", err);
+      reject(err);
+    });
+    blobStream.on('finish', () => {
+      resolve(true);
+    });
+    blobStream.end(buffer);
+  });
+
+  // Make the file public to get a public URL
+  // Note: Ensure your Storage bucket rules allow public reads for these files
+  await blob.makePublic();
+  return blob.publicUrl();
 }
 
 async function deleteImage(imageUrl: string): Promise<void> {
-  console.log(`Simulating deletion of image: ${imageUrl}`);
-  // In a real scenario, delete from Firebase Storage using the URL or path.
-  await new Promise(resolve => setTimeout(resolve, 300));
+  try {
+    const bucketName = storageAdmin.bucket().name;
+    // Expected URL format: https://storage.googleapis.com/YOUR_BUCKET_NAME/path/to/file
+    const prefix = `https://storage.googleapis.com/${bucketName}/`;
+    if (imageUrl.startsWith(prefix)) {
+      const filePath = imageUrl.substring(prefix.length);
+      const file = storageAdmin.bucket().file(decodeURIComponent(filePath)); // Decode URI component for file names with special chars
+      await file.delete();
+      console.log(`Successfully deleted ${filePath} from storage.`);
+    } else {
+      console.warn(`Could not parse Firebase Storage file path from URL: ${imageUrl}. Manual deletion might be required.`);
+    }
+  } catch (error: any) {
+    // Log error but don't let it necessarily block product deletion if image is already gone or URL is malformed
+    if (error.code === 404) {
+        console.warn(`Image not found for deletion (already deleted or wrong URL): ${imageUrl}`);
+    } else {
+        console.error(`Failed to delete image ${imageUrl}:`, error);
+    }
+  }
 }
 
-// --- Product Data (CRUD operations) ---
+// --- Product Data (CRUD operations using Firestore) ---
+const PRODUCTS_COLLECTION = 'products';
 
-export async function createProductInDB(productData: Omit<Product, 'id' | 'images'> & { images: string[] }): Promise<Product> {
-  // TODO: Implement actual database interaction (e.g., Firestore)
-  console.log("Service: Creating product in DB", productData);
-  const newId = (mockProducts.length + 1).toString() + Date.now().toString(); // Simple unique ID for mock
-  const newProduct: Product = { ...productData, id: newId };
-  mockProducts.push(newProduct); // Add to mock data for now
-  return newProduct;
+export async function createProductInDB(
+  productData: Omit<Product, 'id'> // Images should be URLs already
+): Promise<Product> {
+  const newId = uuidv4(); // Generate a unique ID for the product
+  const productWithId: Product = { ...productData, id: newId };
+  
+  await db.collection(PRODUCTS_COLLECTION).doc(newId).set(productWithId);
+  console.log("Service: Created product in Firestore with ID:", newId);
+  return productWithId;
 }
 
 export async function getProductFromDB(productId: string): Promise<Product | null> {
-  // TODO: Implement actual database interaction
-  console.log("Service: Fetching product from DB", productId);
-  const product = mockProducts.find(p => p.id === productId) || null;
-  return product;
+  console.log("Service: Fetching product from Firestore", productId);
+  const docRef = db.collection(PRODUCTS_COLLECTION).doc(productId);
+  const docSnap = await docRef.get();
+
+  if (docSnap.exists) {
+    return docSnap.data() as Product;
+  } else {
+    console.log(`Service: Product with ID ${productId} not found in Firestore.`);
+    return null;
+  }
 }
 
 export async function getAllProductsFromDB(): Promise<Product[]> {
-  // TODO: Implement actual database interaction
-  console.log("Service: Fetching all products from DB");
-  return [...mockProducts]; // Return a copy
+  console.log("Service: Fetching all products from Firestore");
+  const snapshot = await db.collection(PRODUCTS_COLLECTION).get();
+  const products: Product[] = [];
+  snapshot.forEach(doc => products.push(doc.data() as Product));
+  return products;
 }
 
-export async function updateProductInDB(productId: string, productUpdateData: Partial<Omit<Product, 'id' | 'images'>> & { images?: string[] }): Promise<Product | null> {
-  // TODO: Implement actual database interaction
-  console.log("Service: Updating product in DB", productId, productUpdateData);
-  const productIndex = mockProducts.findIndex(p => p.id === productId);
-  if (productIndex === -1) {
+export async function updateProductInDB(
+  productId: string,
+  productUpdateData: Partial<Omit<Product, 'id'>> // Images are URLs
+): Promise<Product | null> {
+  console.log("Service: Updating product in Firestore", productId);
+  const docRef = db.collection(PRODUCTS_COLLECTION).doc(productId);
+  
+  const currentDoc = await docRef.get();
+  if (!currentDoc.exists) {
+    console.error(`Product with ID ${productId} not found for update.`);
     return null;
   }
-  const updatedProduct = { ...mockProducts[productIndex], ...productUpdateData } as Product;
-  mockProducts[productIndex] = updatedProduct;
-  return updatedProduct;
+
+  await docRef.update(productUpdateData);
+  const updatedDocSnap = await docRef.get();
+  return updatedDocSnap.data() as Product;
 }
 
 export async function deleteProductFromDB(productId: string): Promise<boolean> {
-  // TODO: Implement actual database interaction
-  // This should also handle deleting associated images from storage.
-  console.log("Service: Deleting product from DB", productId);
-  const productIndex = mockProducts.findIndex(p => p.id === productId);
-  if (productIndex !== -1) {
-    const productToDelete = mockProducts[productIndex];
-    // Conceptually delete images from storage
-    if (productToDelete.images && productToDelete.images.length > 0) {
-      for (const imageUrl of productToDelete.images) {
-        await deleteImage(imageUrl); // Using the placeholder deleteImage
-      }
+  console.log("Service: Deleting product from Firestore", productId);
+  const product = await getProductFromDB(productId); // Fetch product to get image URLs for deletion
+
+  if (product && product.images && product.images.length > 0) {
+    console.log(`Service: Deleting ${product.images.length} associated images for product ${productId}.`);
+    for (const imageUrl of product.images) {
+      await deleteImage(imageUrl);
     }
-    mockProducts.splice(productIndex, 1);
-    return true;
+  } else if (!product) {
+     console.warn(`Service: Product ${productId} not found for deletion, or it has no images.`);
+     // Decide if this should return true or false. If product not found, it's effectively "deleted".
+     // Returning true here as the state desired (product gone) is achieved.
+     return true;
   }
-  return false;
+
+  await db.collection(PRODUCTS_COLLECTION).doc(productId).delete();
+  console.log(`Service: Product ${productId} deleted from Firestore.`);
+  return true; 
 }
 
 // --- Combined Operations ---
@@ -81,41 +140,45 @@ export async function saveProduct(
   imageFiles: File[], // Files to be uploaded
   existingProductId?: string
 ): Promise<Product | null> {
-  const imageUrls: string[] = [];
+  
+  const resolvedProductId = existingProductId || uuidv4(); // Use existing ID or generate one for organizing images
+  let uploadedImageUrls: string[] = [];
+
   if (imageFiles && imageFiles.length > 0) {
+    console.log(`Service: Uploading ${imageFiles.length} new images for product ID ${resolvedProductId}.`);
     for (const file of imageFiles) {
-      const url = await uploadImage(file); // Upload and get URL
-      imageUrls.push(url);
+      const url = await uploadImage(file, resolvedProductId);
+      uploadedImageUrls.push(url);
     }
   }
 
-  const productPayload = { ...data, images: imageUrls };
-
   if (existingProductId) {
-    // If updating, you might want to fetch existing images, compare,
-    // upload new ones, delete old ones not present in new imageFiles.
-    // For simplicity, this example replaces images if new ones are provided.
-    // If no new images are provided for an update, you might want to keep existing ones.
-    // This logic needs to be tailored.
+    // Updating existing product
     const existingProduct = await getProductFromDB(existingProductId);
-    if (!existingProduct) return null;
-
-    const updateData: Partial<Omit<Product, 'id' | 'images'>> & { images?: string[] } = { ...data };
-    if (imageUrls.length > 0) {
-        updateData.images = imageUrls;
-        // Delete old images if they are being replaced
-        for (const oldImageUrl of existingProduct.images) {
-            if (!imageUrls.includes(oldImageUrl)) { // A simplistic check
-                await deleteImage(oldImageUrl);
-            }
-        }
-    } else {
-        // If no new images are uploaded, keep existing images
-        updateData.images = existingProduct.images;
+    if (!existingProduct) {
+      console.error(`Service Error: Product ${existingProductId} not found for update.`);
+      return null;
     }
 
-    return updateProductInDB(existingProductId, updateData);
+    let finalImageUrls = existingProduct.images || [];
+
+    if (uploadedImageUrls.length > 0) {
+      // New images were uploaded, replace old ones
+      console.log(`Service: Replacing images for product ${existingProductId}. Deleting ${existingProduct.images.length} old images.`);
+      for (const oldImageUrl of existingProduct.images) {
+        await deleteImage(oldImageUrl);
+      }
+      finalImageUrls = uploadedImageUrls;
+    }
+    // If no new images uploaded (uploadedImageUrls is empty), finalImageUrls remains existingProduct.images
+
+    const productUpdatePayload = { ...data, images: finalImageUrls };
+    return updateProductInDB(existingProductId, productUpdatePayload);
+
   } else {
+    // Creating new product
+    const productPayload = { ...data, images: uploadedImageUrls };
+    // createProductInDB will assign its own ID, the resolvedProductId was mainly for image path organization
     return createProductInDB(productPayload);
   }
 }
