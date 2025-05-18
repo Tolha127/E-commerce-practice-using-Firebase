@@ -6,6 +6,10 @@ import { v4 as uuidv4 } from 'uuid';
 
 // --- Image Upload ---
 async function uploadImage(file: File, productId: string): Promise<ProductImage> {
+  if (!storageAdmin) {
+    throw new Error('Firebase Storage is not initialized');
+  }
+
   const bucket = storageAdmin.bucket();
   const originalFileName = file.name.replace(/\s+/g, '_'); // Sanitize original name
   const uniqueFileName = `${uuidv4()}-${originalFileName}`;
@@ -13,6 +17,7 @@ async function uploadImage(file: File, productId: string): Promise<ProductImage>
   
   const blob = bucket.file(filePath);
 
+  // Import Buffer from Node.js
   const buffer = Buffer.from(await file.arrayBuffer());
 
   await new Promise((resolve, reject) => {
@@ -21,8 +26,7 @@ async function uploadImage(file: File, productId: string): Promise<ProductImage>
         contentType: file.type,
       },
       resumable: false,
-    });
-    blobStream.on('error', (err) => {
+    });    blobStream.on('error', (err: Error) => {
       console.error("Error uploading image to Firebase Storage:", err);
       reject(err);
     });
@@ -39,6 +43,10 @@ async function uploadImage(file: File, productId: string): Promise<ProductImage>
 }
 
 async function deleteImage(filePath: string): Promise<void> {
+  if (!storageAdmin) {
+    throw new Error('Firebase Storage is not initialized');
+  }
+  
   try {
     const file = storageAdmin.bucket().file(filePath);
     await file.delete();
@@ -59,6 +67,10 @@ const PRODUCTS_COLLECTION = 'products';
 export async function createProductInDB(
   productData: Omit<Product, 'id'> 
 ): Promise<Product> {
+  if (!db) {
+    throw new Error('Firebase Firestore is not initialized');
+  }
+
   const newId = uuidv4();
   const productWithId: Product = { ...productData, id: newId };
   
@@ -68,6 +80,10 @@ export async function createProductInDB(
 }
 
 export async function getProductFromDB(productId: string): Promise<Product | null> {
+  if (!db) {
+    throw new Error('Firebase Firestore is not initialized');
+  }
+  
   console.log("Service: Fetching product from Firestore", productId);
   const docRef = db.collection(PRODUCTS_COLLECTION).doc(productId);
   const docSnap = await docRef.get();
@@ -81,10 +97,14 @@ export async function getProductFromDB(productId: string): Promise<Product | nul
 }
 
 export async function getAllProductsFromDB(): Promise<Product[]> {
+  if (!db) {
+    throw new Error('Firebase Firestore is not initialized');
+  }
+  
   console.log("Service: Fetching all products from Firestore");
   const snapshot = await db.collection(PRODUCTS_COLLECTION).orderBy('name').get(); // Added orderBy for consistency
   const products: Product[] = [];
-  snapshot.forEach(doc => products.push(doc.data() as Product));
+  snapshot.forEach((doc: any) => products.push(doc.data() as Product));
   return products;
 }
 
@@ -92,6 +112,10 @@ export async function updateProductInDB(
   productId: string,
   productUpdateData: Partial<Omit<Product, 'id'>>
 ): Promise<Product | null> {
+  if (!db) {
+    throw new Error('Firebase Firestore is not initialized');
+  }
+  
   console.log("Service: Updating product in Firestore", productId);
   const docRef = db.collection(PRODUCTS_COLLECTION).doc(productId);
   
@@ -107,6 +131,10 @@ export async function updateProductInDB(
 }
 
 export async function deleteProductFromDB(productId: string): Promise<boolean> {
+  if (!db) {
+    throw new Error('Firebase Firestore is not initialized');
+  }
+  
   console.log("Service: Deleting product from Firestore", productId);
   const product = await getProductFromDB(productId); 
 
